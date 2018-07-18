@@ -1,0 +1,40 @@
+#!/bin/bash
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright © 2015-2018 ANSSI. All Rights Reserved.
+
+export DISPLAY=':0'
+export XAUTHORITY=/home/user/.Xauthority
+
+if [ -f /home/user/ssm-key ]
+then
+    KEYFILE=/home/user/ssm-key
+fi
+if [ -f /home/user/ssm-key.new ]
+then
+    KEYFILE=/home/user/ssm-key.new
+fi
+if [ -z "${KEYFILE}" ]
+then
+    Xdialog --title SSM --msgbox "Pas de SSM actif" 0 0
+    exit -1
+fi
+KEY=$(cat $KEYFILE)
+NEWKEY=$(Xdialog --title SSM --ok-label "Modifier" --stdout \
+    --cancel-label "Fermer" --inputbox "Clé du SSM" 0 0  "${KEY}")
+if [ "$?" -ne 0 ] || [ "${KEY}" = "${NEWKEY}" ] || [ "" = "${NEWKEY}" ]
+then
+    exit 0
+fi
+if [ "$(echo -n "${NEWKEY}" | wc -c )" -ne 24 ]
+then
+    Xdialog --title SSM --msgbox "La clé su SSM doit contenir exactement 24 caractères" 0 0
+    exit -1
+fi
+Xdialog --title SSM --ok-label Oui --cancel-label Non --default-no --yesno \
+    "Les donnés actuelles du SSM vont être perdues. Voulez-vous continuer ?" 0 0
+if [ "$?" -eq 0 ]
+then
+    echo "${NEWKEY}" > /home/user/ssm-key.new
+else
+    exit -1
+fi

@@ -1,0 +1,81 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright © 2015-2018 ANSSI. All Rights Reserved.
+
+import sys
+import os
+import socket
+import subprocess
+import threading
+
+msgMaxSize = 1024
+
+prompts = { 'a' : ["Mot de passe SSM", "Dechiffrement de la base SSM", "Mot de passe :", False],
+            'b' : ["Code PIN PKCS#11", "Code PIN de la ressource PKCS#11", "Code PIN :", False],
+            'c' : ["Mot de passe PKCS#12", "Mot de passe pour l'export PKCS#12", "Mot de passe :", True]}
+
+guiLock = threading.Lock()
+
+def usage():
+    sys.stderr.write(" Usage: pinentry-server unix-socket\n")
+    exit(-1)
+
+def pinentry(title, desc, prompt, confirm, locked = False):
+    code = 'o'
+    string = ''
+    params  = "SETTITLE " + title + "\n"
+    params += "SETOK Confirmer\n"
+    params += "SETCANCEL Annuler\n"
+    params += "SETDESC " + desc + "\n"
+    params += "SETPROMPT " + prompt + "\n\n"
+    params += "GETPIN\n"
+    if not locked:
+        guiLock.acquire(True)
+    proc = subprocess.Popen(["pinentry"],
+            stdin = subprocess.PIPE,
+            stdout = subprocess.PIPE,
+            stderr = subprocess.PIPE)
+    ret = proc.communicate(params)
+    retval = proc.wait()
+    lines = ret[0].splitlines()
+    if len(lines) < 2:
+        code = 'e'
+    elif lines[-1] == "OK":
+        code = 'o'
+        string = lines[-2][2:]
+    else:
+        if 'cancel' in lines[-1]:
+            code = 'c'
+        else:
+            code = 'e'
+    if (code == 'o') and confirm:
+        _code, _str = pinentry(title, "Merci de confirmer la saisie", prompt, False, True)
+        if _code != 'o':
+            code = _code
+            string = ''
+        elif string != _str:
+            code = 'c'
+            string = ''
+    if not locked:
+        guiLock.release()
+    return code, string
+
+def handle(sock):
+    code = sock.recv(1)
+    ret = "e\0"
+    if code in prompts:
+        _c, _s = pinentry(*prompts[code])
+        ret = _c + _s + "\0"
+    sock.sendall(ret)
+    sock.close()
+
+if len(sys.argv) != 2:
+    usage()
+
+server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+server.bind(sys.argv[1])
+server.listen(5)
+while True:
+    clt, addr = server.accept()
+    threading.Thread(target = handle, args=[clt]).start()
